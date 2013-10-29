@@ -1,0 +1,26 @@
+import("lwr_fri")
+import("mass_matrix_test")
+
+loadComponent("lwr","lwr_fri::FRIComponent")
+loadComponent("mmt", "Mass_matrix_test")
+
+setActivity("lwr",0, 99, ORO_SCHED_RT)
+setActivity("mmt", 0.05, 99, ORO_SCHED_RT)
+lwr.udp_port=49938
+lwr.configure
+mmt.configure
+lwr.start
+mmt.start
+
+var ConnPolicy cp
+cp.type = DATA
+cp.lock_policy = LOCK_FREE
+
+connect("mmt.JointState","lwr.JointState",cp)
+connect("mmt.CartesianPositionFrame","lwr.CartesianPositionFrame",cp)
+
+connect("mmt.MassMatrix","lwr.MassMatrix",cp)
+connect("mmt.Jacobian","lwr.Jacobian",cp)
+
+connect("mmt.JointEffortCommand","lwr.JointEffortCommand",cp)
+connect("mmt.FriJointImpedance","lwr.FriJointImpedance",cp)
