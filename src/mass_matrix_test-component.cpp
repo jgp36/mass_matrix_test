@@ -1,6 +1,7 @@
 #include "mass_matrix_test-component.hpp"
 #include <rtt/Component.hpp>
 #include <iostream>
+#include <fstream>
 
 using namespace Eigen;
 
@@ -10,10 +11,12 @@ Mass_matrix_test::Mass_matrix_test(std::string const& name)
     jacobian(Matrix6x7d::Zero(6,7)),
     N(Matrix7x7d::Zero(7,7)),
     lambda(Matrix6x6d::Zero(6,6)),
-    t_out(1), t_last(0), t_disp(0) {
+    t_disp(1), t_last_disp(0),
+    t_log(0.1), t_last_log(0) {
 
   //Add Ports
   this->addPort("JointState", port_joint_state);
+  this->addPort("FriJointState", port_fri_joint_state);
   this->addPort("CartesianPositionFrame", port_cart_frame);
 
   this->addPort("MassMatrix", port_mass_matrix);
@@ -54,6 +57,7 @@ void Mass_matrix_test::updateHook(){
   //Read and update the state
   if (port_joint_state.read(joint_state) == NewData) {
 
+     port_fri_joint_state.read(fri_joint_state);
      port_mass_matrix.read(mass_matrix);
 
      //Convert to Eigen for easier computations
@@ -72,7 +76,7 @@ void Mass_matrix_test::updateHook(){
        }
      }
 
-     //Compute the operational space mass matrix assuming non-sinuglar pose
+     //Compute the operational space mass matrix assuming non-singular pose
      lambda = (jacobian*A.inverse()*jacobian.transpose()).inverse();
 
      //Compute the dynamically consistent nullspace
@@ -94,14 +98,14 @@ void Mass_matrix_test::updateHook(){
   }
 
   //Data display
-  if (t_cur - t_disp > t_out) {
+  if (t_cur - t_last_disp > t_disp) {
     std::cout << "Time: " << t_cur<< std::endl;
     std::cout << "Joint Position: " ;
     for (size_t ii(0); ii<7; ++ii) {
       std::cout << joint_state.position[ii] << " ";
     }
     std::cout << std::endl;
-    std::cout << "Joint Torque: " << torque.transpose() << std::endl;
+    std::cout << "Desired Joint Torque: " << torque.transpose() << std::endl;
 
     std::cout << "End Effector Frame:" << std::endl;
     for (size_t ii(0); ii<4; ++ii) {
@@ -112,11 +116,29 @@ void Mass_matrix_test::updateHook(){
     }
 
     //Theoretical Contribution to end effector pose
-    Vector6d t_ee(jacobian*torque);
+    t_ee = jacobian*torque;
     std::cout << "Theoretical EE force: " << t_ee.transpose() << std::endl;
 
     std::cout << std::endl;
-    t_disp = t_cur;
+    t_last_disp = t_cur;
+  }
+
+  //Log
+  if (t_cur - t_last_log > t_log) {
+    Vector7d jpos;
+    Vector7d act_torque;
+    for (size_t ii(0); ii<7; ++ii) {
+      jpos[ii] = joint_state.position[ii];
+      act_torque[ii] = fri_joint_state.msrJntTrq[ii];
+    }
+
+    jpos_log.push_back(jpos);
+    des_torque_log.push_back(torque);
+    act_torque_log.push_back(act_torque);
+    des_ee_force_log.push_back(t_ee);
+    act_ee_pos_log.push_back(cart_frame_kdl);
+    
+    t_last_log = t_cur;
   }
 
 }
@@ -129,6 +151,30 @@ void Mass_matrix_test::stopHook() {
   }
   port_joint_efforts.write(joint_efforts);
 
+  //Write out data
+  std::ofstream f;
+  f.open (filename.c_str());
+
+  double x,y,z,w;
+
+  for (size_t ii(0); ii < (size_t) jpos_log.size(); ++ii) {
+    for (size_t jj(0); jj < (size_t) 7; ++jj) {
+      f << jpos_log[ii][jj] << " ";
+    }
+    for (size_t jj(0); jj < (size_t) 7; ++jj) {
+      f << des_torque_log[ii][jj] << " ";
+    }
+    for (size_t jj(0); jj < (size_t) 7; ++jj) {
+      f << act_torque_log[ii][jj] << " ";
+    }
+    for (size_t jj(0); jj < (size_t) 7; ++jj) {
+      f << des_ee_force_log[ii][jj] << " ";
+    }
+    f << act_ee_pos_log[ii].p.x() << " " << act_ee_pos_log[ii].p.y() << " "<< act_ee_pos_log[ii].p.z() << " ";
+    act_ee_pos_log[ii].M.GetQuaternion(x,y,z,w);
+    f << x << " " << y << " " << z << " " << w;
+    f << "\n";
+  }
 }
 
 void Mass_matrix_test::cleanupHook() {
