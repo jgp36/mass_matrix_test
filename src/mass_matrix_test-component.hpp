@@ -63,6 +63,7 @@ class Mass_matrix_test : public RTT::TaskContext{
     //Data logging
     std::vector< Vector7d > jpos_log;
     std::vector< Vector7d > des_torque_log;
+    Vector7d act_torque;
     std::vector< Vector7d > act_torque_log;
     Vector6d t_ee;
     std::vector< Vector6d > des_ee_force_log;

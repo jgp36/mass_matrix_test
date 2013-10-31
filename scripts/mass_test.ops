@@ -7,6 +7,7 @@ loadComponent("mmt", "Mass_matrix_test")
 setActivity("lwr",0, 99, ORO_SCHED_RT)
 setActivity("mmt", 0.05, 99, ORO_SCHED_RT)
 lwr.udp_port=49938
+mmt.Filename = "test.log"
 lwr.configure
 mmt.configure
 lwr.start

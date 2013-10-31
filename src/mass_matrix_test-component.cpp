@@ -12,6 +12,7 @@ Mass_matrix_test::Mass_matrix_test(std::string const& name)
     N(Matrix7x7d::Zero(7,7)),
     lambda(Matrix6x6d::Zero(6,6)),
     t_disp(1), t_last_disp(0),
+    t_ee(Vector6d::Zero(6,1)),
     t_log(0.1), t_last_log(0) {
 
   //Add Ports
@@ -24,6 +25,8 @@ Mass_matrix_test::Mass_matrix_test(std::string const& name)
 
   this->addPort("JointEffortCommand", port_joint_efforts);
   this->addPort("FriJointImpedance", port_fri_joint_impedance);
+  
+  this->addProperty("Filename", filename);
 }
 
 bool Mass_matrix_test::configureHook(){
@@ -58,6 +61,7 @@ void Mass_matrix_test::updateHook(){
   if (port_joint_state.read(joint_state) == NewData) {
 
      port_fri_joint_state.read(fri_joint_state);
+     port_cart_frame.read(cart_frame_kdl);
      port_mass_matrix.read(mass_matrix);
 
      //Convert to Eigen for easier computations
@@ -75,6 +79,11 @@ void Mass_matrix_test::updateHook(){
          jacobian(ii,jj) = jacobian_kdl(ii,jj);
        }
      }
+     
+     //Read actual joint torque for logging
+     for (size_t ii(0); ii<7; ++ii) {
+       act_torque[ii] = fri_joint_state.msrJntTrq[ii];
+     }
 
      //Compute the operational space mass matrix assuming non-singular pose
      lambda = (jacobian*A.inverse()*jacobian.transpose()).inverse();
@@ -89,6 +98,9 @@ void Mass_matrix_test::updateHook(){
 
      //Project into the nullspace
      torque = N.transpose()*torque;
+     
+     //Theoretical Contribution to end effector pose
+     t_ee = jacobian*torque;
 
      //Write to robot
      for (size_t ii(0); ii<7; ++ii) {
@@ -106,6 +118,8 @@ void Mass_matrix_test::updateHook(){
     }
     std::cout << std::endl;
     std::cout << "Desired Joint Torque: " << torque.transpose() << std::endl;
+    
+    std::cout << "Actual Joint Torque: " << act_torque.transpose() << std::endl;
 
     std::cout << "End Effector Frame:" << std::endl;
     for (size_t ii(0); ii<4; ++ii) {
@@ -115,8 +129,6 @@ void Mass_matrix_test::updateHook(){
       std::cout << std::endl;
     }
 
-    //Theoretical Contribution to end effector pose
-    t_ee = jacobian*torque;
     std::cout << "Theoretical EE force: " << t_ee.transpose() << std::endl;
 
     std::cout << std::endl;
@@ -125,11 +137,10 @@ void Mass_matrix_test::updateHook(){
 
   //Log
   if (t_cur - t_last_log > t_log) {
+  
     Vector7d jpos;
-    Vector7d act_torque;
     for (size_t ii(0); ii<7; ++ii) {
       jpos[ii] = joint_state.position[ii];
-      act_torque[ii] = fri_joint_state.msrJntTrq[ii];
     }
 
     jpos_log.push_back(jpos);
@@ -167,7 +178,7 @@ void Mass_matrix_test::stopHook() {
     for (size_t jj(0); jj < (size_t) 7; ++jj) {
       f << act_torque_log[ii][jj] << " ";
     }
-    for (size_t jj(0); jj < (size_t) 7; ++jj) {
+    for (size_t jj(0); jj < (size_t) 6; ++jj) {
       f << des_ee_force_log[ii][jj] << " ";
     }
     f << act_ee_pos_log[ii].p.x() << " " << act_ee_pos_log[ii].p.y() << " "<< act_ee_pos_log[ii].p.z() << " ";
