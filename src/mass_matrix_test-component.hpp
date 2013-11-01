@@ -46,13 +46,18 @@ class Mass_matrix_test : public RTT::TaskContext{
     //Output ports and messages
     OutputPort<motion_control_msgs::JointEfforts> port_joint_efforts;
     motion_control_msgs::JointEfforts joint_efforts;
+    OutputPort<motion_control_msgs::JointPositions> port_joint_pos_command;
+    motion_control_msgs::JointPositions joint_pos_command;
     OutputPort<lwr_fri::FriJointImpedance> port_fri_joint_impedance;
     lwr_fri::FriJointImpedance fri_joint_impedance;
 
-    //Nullspace computation and torque variables
+    //Nullspace computation and control variables
     Matrix7x7d N;
     Matrix6x6d lambda;
     Vector7d torque;
+    float kp;
+    float period;
+    Vector7d offset;
 
     //Data display timers
     float t_disp;

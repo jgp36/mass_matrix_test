@@ -2,6 +2,7 @@
 #include <rtt/Component.hpp>
 #include <iostream>
 #include <fstream>
+#include <Eigen/SVD>
 
 using namespace Eigen;
 
@@ -11,6 +12,7 @@ Mass_matrix_test::Mass_matrix_test(std::string const& name)
     jacobian(Matrix6x7d::Zero(6,7)),
     N(Matrix7x7d::Zero(7,7)),
     lambda(Matrix6x6d::Zero(6,6)),
+    kp(1), period(1),
     t_disp(1), t_last_disp(0),
     t_ee(Vector6d::Zero(6,1)),
     t_log(0.1), t_last_log(0) {
@@ -23,20 +25,31 @@ Mass_matrix_test::Mass_matrix_test(std::string const& name)
   this->addPort("MassMatrix", port_mass_matrix);
   this->addPort("Jacobian", port_jacobian);
 
+  this->addPort("JointPositionCommand", port_joint_pos_command);
   this->addPort("JointEffortCommand", port_joint_efforts);
   this->addPort("FriJointImpedance", port_fri_joint_impedance);
   
   this->addProperty("Filename", filename);
+  
+  this->addProperty("kp", kp);
+  this->addProperty("period", period);
+  
+  offset = Vector7d::Zero(7,1);
+  offset[1] =  45.0*M_PI/180.0;
+  offset[3] = -90.0*M_PI/180.0;
+  offset[5] =  45.0*M_PI/180.0;
 }
 
 bool Mass_matrix_test::configureHook(){
 
   //Set joint impedance and initialize joint efforts
   for (size_t ii(0); ii < 7; ++ii) {
-     fri_joint_impedance.stiffness[ii] = 0;
-     fri_joint_impedance.damping[ii] = 0;
-     joint_efforts.efforts.push_back(0);
+     fri_joint_impedance.stiffness[ii] = 0.0;
+     fri_joint_impedance.damping[ii] = 0.1;
+     joint_efforts.efforts.push_back(0.0);
+     joint_pos_command.positions.push_back(0.0);
   }
+
 
   return true;
 }
@@ -45,6 +58,8 @@ bool Mass_matrix_test::startHook(){
 
   //Time start
   t_start = RTT::os::TimeService::Instance()->getTicks();
+  
+  port_fri_joint_impedance.write(fri_joint_impedance);
 
   return true;
 }
@@ -82,31 +97,33 @@ void Mass_matrix_test::updateHook(){
      
      //Read actual joint torque for logging
      for (size_t ii(0); ii<7; ++ii) {
-       act_torque[ii] = fri_joint_state.msrJntTrq[ii];
+       act_torque[ii] = fri_joint_state.msrJntTrq[ii] - fri_joint_state.gravity[ii];
      }
 
      //Compute the operational space mass matrix assuming non-singular pose
      lambda = (jacobian*A.inverse()*jacobian.transpose()).inverse();
 
-     //Compute the dynamically consistent nullspace
-     N = Matrix7x7d::Identity(7,7) - A.inverse()*jacobian.transpose()*lambda*jacobian;
+     //Compute the tranpose of thedynamically consistent nullspace
+     N = Matrix7x7d::Identity(7,7) - jacobian.transpose()*(A.inverse()*jacobian.transpose()*lambda).transpose();
 
      //Compute desired torque to follow the trajectory
      for(size_t ii(0); ii<7; ++ii) {
-       torque(ii) = 0;
+       torque(ii) = kp*(offset[ii] + (M_PI/2)*sin(t_cur*2*M_PI/period) - joint_state.position[ii]);
      }
 
      //Project into the nullspace
-     torque = N.transpose()*torque;
+     torque = N*torque;
      
      //Theoretical Contribution to end effector pose
-     t_ee = jacobian*torque;
+     t_ee = (A.inverse()*jacobian.transpose()*lambda).transpose()*torque;
 
      //Write to robot
      for (size_t ii(0); ii<7; ++ii) {
        joint_efforts.efforts[ii] = torque(ii);
+       joint_pos_command.positions[ii] = joint_state.position[ii];
      }
      port_joint_efforts.write(joint_efforts);
+     port_joint_pos_command.write(joint_pos_command);
   }
 
   //Data display
@@ -128,6 +145,9 @@ void Mass_matrix_test::updateHook(){
       }
       std::cout << std::endl;
     }
+    
+    JacobiSVD<Matrix6x7d> svd(jacobian);
+    std::cout << "Singular Values of J: " << svd.singularValues() << std::endl;
 
     std::cout << "Theoretical EE force: " << t_ee.transpose() << std::endl;
 
